@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Spirout — prototipo 3D</title>
+  <style>
+    body { margin: 0; background: #f6efd9; color: #4a3a1f; font-family: monospace; overflow: hidden; }
+    #hud  { position: fixed; top: 12px; left: 14px; pointer-events: none; line-height: 1.5; }
+    #hud .hint { opacity: 0.6; font-size: 12px; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div><strong>SPIROUT — prototipo</strong></div>
+    <div class="hint">arrastra para girar · scroll para zoom · doble-click resetea</div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    // ----------------------------------------------------------------------
+    // Palette (Spirout — bosque cálido)
+    // ----------------------------------------------------------------------
+    const COL = {
+      sky:        0xf6efd9,   // crema muy claro
+      ground:     0xddd0a0,   // arena
+      headLight:  0xe8c478,   // amarillo cálido (cara)
+      headShade:  0xc99a4a,   // sombra cabeza
+      cheek:      0x6ea33a,   // verde espiral mejillas
+      bodyDark:   0x8a4a1f,   // marrón tronco
+      bodyMid:    0xa66232,   // marrón medio
+      leafDark:   0x4d7a23,   // verde oscuro hojas
+      leafMid:    0x6ea33a,   // verde medio hojas
+      leafLight:  0x9bbc4a,   // verde claro
+      hand:       0xeadeb1,   // beige claro manos/pies
+      handShade:  0xc8b87f,   // sombra manos
+      eye:        0x4f8b2a,   // verde iris
+      eyeWhite:   0xfff9e6,   // crema blanco ojo
+      pupil:      0x1a1a1a,
+      brow:       0x2a1a10,
+      mouth:      0x7a2410,
+    };
+
+    // ----------------------------------------------------------------------
+    // Scene
+    // ----------------------------------------------------------------------
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(COL.sky);
+    scene.fog = new THREE.Fog(COL.sky, 18, 50);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setPixelRatio(1);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const camera = new THREE.PerspectiveCamera(
+      45, window.innerWidth / window.innerHeight, 0.1, 100
+    );
+    camera.position.set(0, 3.0, 8);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 2.0, 0);
+    controls.enableDamping = true;
+
+    renderer.domElement.addEventListener('dblclick', () => {
+      camera.position.set(0, 3.0, 8);
+      controls.target.set(0, 2.0, 0);
+    });
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0xfff3d1, 0.6));
+    const sun = new THREE.DirectionalLight(0xfff0c0, 0.95);
+    sun.position.set(5, 9, 4);
+    scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xb8d8ff, 0.25);
+    fill.position.set(-4, 2, -3);
+    scene.add(fill);
+
+    // ----------------------------------------------------------------------
+    // Ground — soft beige plane
+    // ----------------------------------------------------------------------
+    {
+      const g = new THREE.Mesh(
+        new THREE.CircleGeometry(20, 36),
+        new THREE.MeshLambertMaterial({ color: COL.ground })
+      );
+      g.rotation.x = -Math.PI / 2;
+      g.position.y = -0.01;
+      scene.add(g);
+    }
+
+    // ----------------------------------------------------------------------
+    // Helpers
+    // ----------------------------------------------------------------------
+    function mat(color) {
+      return new THREE.MeshLambertMaterial({ color, flatShading: true });
+    }
+    function basicMat(color) {
+      return new THREE.MeshBasicMaterial({ color });
+    }
+
+    // ----------------------------------------------------------------------
+    // Spirout — model root
+    // ----------------------------------------------------------------------
+    const spirout = new THREE.Group();
+    spirout.position.y = 0.0;
+    scene.add(spirout);
+
+    // ============================ BODY (tronco) ===========================
+    // Body is a tapered cylinder (cone-ish) wider at the bottom.
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.55, 0.78, 1.2, 10, 1),
+      mat(COL.bodyDark)
+    );
+    body.position.y = 1.05;
+    spirout.add(body);
+
+    // Decorative spiral on the belly (drawn as flat geometry facing +Z)
+    {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 128;
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, 128, 128);
+      ctx.strokeStyle = '#9BBC4A';
+      ctx.lineWidth = 14;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      // hand-drawn-ish spiral
+      for (let t = 0; t < Math.PI * 3.2; t += 0.05) {
+        const r = 8 + t * 8;
+        const x = 64 + Math.cos(t) * r;
+        const y = 64 + Math.sin(t) * r;
+        if (t === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      const tex = new THREE.CanvasTexture(cv);
+      tex.magFilter = THREE.NearestFilter;
+      const bellySpiral = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.7, 0.7),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true })
+      );
+      bellySpiral.position.set(0, 1.0, 0.72);
+      spirout.add(bellySpiral);
+    }
+
+    // ============================ LEAF COLLAR =============================
+    // A ring of leafy cones around the upper body, pointing slightly outward.
+    {
+      const COUNT = 8;
+      for (let i = 0; i < COUNT; i++) {
+        const angle = (i / COUNT) * Math.PI * 2;
+        const leaf = new THREE.Mesh(
+          new THREE.ConeGeometry(0.18, 0.55, 4),
+          mat(COL.leafDark)
+        );
+        const r = 0.55;
+        leaf.position.set(Math.cos(angle) * r, 1.65, Math.sin(angle) * r);
+        // tilt outward & down a bit
+        leaf.rotation.z = -Math.cos(angle) * Math.PI / 2.4;
+        leaf.rotation.x =  Math.sin(angle) * Math.PI / 2.4;
+        leaf.rotation.y =  angle;
+        spirout.add(leaf);
+      }
+      // smaller inner ring (lighter shade)
+      for (let i = 0; i < COUNT; i++) {
+        const angle = (i / COUNT) * Math.PI * 2 + Math.PI / COUNT;
+        const leaf = new THREE.Mesh(
+          new THREE.ConeGeometry(0.13, 0.42, 4),
+          mat(COL.leafMid)
+        );
+        const r = 0.48;
+        leaf.position.set(Math.cos(angle) * r, 1.75, Math.sin(angle) * r);
+        leaf.rotation.z = -Math.cos(angle) * Math.PI / 3;
+        leaf.rotation.x =  Math.sin(angle) * Math.PI / 3;
+        leaf.rotation.y =  angle;
+        spirout.add(leaf);
+      }
+    }
+
+    // ============================ HEAD ====================================
+    const head = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.95, 1),   // low-poly faceted look
+      mat(COL.headLight)
+    );
+    head.position.y = 2.65;
+    spirout.add(head);
+
+    // ============================ FACE ====================================
+    function makeEye(side) {
+      const g = new THREE.Group();
+      const white = new THREE.Mesh(
+        new THREE.SphereGeometry(0.18, 10, 8),
+        mat(COL.eyeWhite)
+      );
+      white.scale.set(1.0, 1.15, 0.4);
+      g.add(white);
+      const iris = new THREE.Mesh(
+        new THREE.CircleGeometry(0.11, 16),
+        basicMat(COL.eye)
+      );
+      iris.position.z = 0.08;
+      g.add(iris);
+      const pupil = new THREE.Mesh(
+        new THREE.CircleGeometry(0.05, 12),
+        basicMat(COL.pupil)
+      );
+      pupil.position.z = 0.085;
+      g.add(pupil);
+      const shine = new THREE.Mesh(
+        new THREE.CircleGeometry(0.025, 8),
+        basicMat(0xffffff)
+      );
+      shine.position.set(0.04, 0.05, 0.09);
+      g.add(shine);
+      g.position.set(side * 0.32, 2.70, 0.78);
+      g.rotation.y = side * -0.25;
+      return g;
+    }
+    spirout.add(makeEye(+1));
+    spirout.add(makeEye(-1));
+
+    // Eyebrows
+    function makeBrow(side) {
+      const b = new THREE.Mesh(
+        new THREE.BoxGeometry(0.28, 0.06, 0.06),
+        basicMat(COL.brow)
+      );
+      b.position.set(side * 0.34, 2.95, 0.82);
+      b.rotation.z = side * -0.35;
+      b.rotation.y = side * -0.25;
+      return b;
+    }
+    spirout.add(makeBrow(+1));
+    spirout.add(makeBrow(-1));
+
+    // Mouth — small open smile
+    {
+      const mouth = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2),
+        basicMat(COL.mouth)
+      );
+      mouth.scale.set(1.0, 0.6, 0.5);
+      mouth.position.set(0, 2.45, 0.84);
+      spirout.add(mouth);
+    }
+
+    // Cheek spirals (flat sprites on the cheeks)
+    function makeCheekSpiral(side) {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 64;
+      const ctx = cv.getContext('2d');
+      ctx.strokeStyle = '#5C8C2E';
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (let t = 0; t < Math.PI * 2.4; t += 0.05) {
+        const r = 4 + t * 5;
+        const x = 32 + Math.cos(t) * r;
+        const y = 32 + Math.sin(t) * r;
+        if (t === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      const tex = new THREE.CanvasTexture(cv);
+      tex.magFilter = THREE.NearestFilter;
+      const m = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.32, 0.32),
+        new THREE.MeshBasicMaterial({ map: tex, transparent: true })
+      );
+      m.position.set(side * 0.65, 2.45, 0.62);
+      m.rotation.y = side * -0.4;
+      return m;
+    }
+    spirout.add(makeCheekSpiral(+1));
+    spirout.add(makeCheekSpiral(-1));
+
+    // ============================ ANTENNAS ================================
+    // Big curly spiral on one side (vine that spirals at the tip).
+    function makeCurlyAntenna() {
+      const N = 80;
+      const pts = [];
+      // 1) tall stem from top of head
+      for (let i = 0; i <= N * 0.35; i++) {
+        const t = i / (N * 0.35);
+        pts.push(new THREE.Vector3(
+          t * 0.25,
+          t * 1.4,
+          t * 0.05
+        ));
+      }
+      // 2) spiral inward at the top
+      const center = new THREE.Vector3(0.6, 1.85, 0.0);
+      for (let i = 0; i < N * 0.65; i++) {
+        const u = i / (N * 0.65);
+        const angle = u * Math.PI * 3.5;
+        const radius = 0.45 * (1 - u * 0.85);
+        pts.push(new THREE.Vector3(
+          center.x + Math.cos(angle + Math.PI) * radius,
+          center.y + Math.sin(angle + Math.PI) * radius * 0.85,
+          center.z + Math.sin(angle * 0.3) * 0.05
+        ));
+      }
+      const curve = new THREE.CatmullRomCurve3(pts);
+      const geo = new THREE.TubeGeometry(curve, 100, 0.07, 6, false);
+      const m = new THREE.Mesh(geo, mat(COL.leafDark));
+      return m;
+    }
+    {
+      const antenna = makeCurlyAntenna();
+      antenna.position.set(-0.4, 3.5, 0);
+      spirout.add(antenna);
+    }
+
+    // Small sprout on the other side (a stem with 2 leaves)
+    function makeSproutLeaf(yaw, tilt, size) {
+      const leaf = new THREE.Mesh(
+        new THREE.ConeGeometry(0.2 * size, 0.5 * size, 4),
+        mat(COL.leafMid)
+      );
+      leaf.rotation.z = tilt;
+      leaf.rotation.y = yaw;
+      leaf.scale.z = 0.5;
+      return leaf;
+    }
+    {
+      const sproutGroup = new THREE.Group();
+      // stem
+      const stem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05, 0.05, 0.6, 5),
+        mat(COL.leafDark)
+      );
+      stem.position.y = 0.3;
+      sproutGroup.add(stem);
+      // two leaves
+      const leaf1 = makeSproutLeaf(0, Math.PI / 3, 1.0);
+      leaf1.position.set(0.18, 0.55, 0);
+      sproutGroup.add(leaf1);
+      const leaf2 = makeSproutLeaf(Math.PI, -Math.PI / 3, 0.85);
+      leaf2.position.set(-0.14, 0.50, 0);
+      sproutGroup.add(leaf2);
+
+      sproutGroup.position.set(0.35, 3.45, 0);
+      sproutGroup.rotation.z = -0.15;
+      spirout.add(sproutGroup);
+    }
+
+    // ============================ ARMS ====================================
+    function makeArm(side) {
+      const group = new THREE.Group();
+      const arm = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.10, 0.10, 0.7, 6),
+        mat(COL.leafDark)
+      );
+      arm.rotation.z = side * (Math.PI / 2.4);
+      arm.position.set(side * 0.45, 0, 0);
+      group.add(arm);
+
+      const hand = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.28, 0),    // chunky low-poly fist
+        mat(COL.hand)
+      );
+      hand.position.set(side * 0.9, side * 0.1, 0);
+      group.add(hand);
+
+      // Decorative spiral on one of the hands
+      if (side === -1) {
+        const cv = document.createElement('canvas');
+        cv.width = cv.height = 64;
+        const ctx = cv.getContext('2d');
+        ctx.strokeStyle = '#5C8C2E';
+        ctx.lineWidth = 8;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        for (let t = 0; t < Math.PI * 2.4; t += 0.05) {
+          const r = 4 + t * 5;
+          const x = 32 + Math.cos(t) * r;
+          const y = 32 + Math.sin(t) * r;
+          if (t === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        const tex = new THREE.CanvasTexture(cv);
+        tex.magFilter = THREE.NearestFilter;
+        const sp = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.28, 0.28),
+          new THREE.MeshBasicMaterial({ map: tex, transparent: true })
+        );
+        sp.position.set(side * 0.9, side * 0.1, 0.27);
+        group.add(sp);
+      }
+
+      group.position.set(0, 1.55, 0);
+      return group;
+    }
+    const armR = makeArm(+1);
+    const armL = makeArm(-1);
+    spirout.add(armR);
+    spirout.add(armL);
+
+    // ============================ LEGS + FEET =============================
+    function makeLeg(side) {
+      const group = new THREE.Group();
+      const leg = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.13, 0.13, 0.45, 6),
+        mat(COL.leafDark)
+      );
+      leg.position.y = 0.22;
+      group.add(leg);
+      const foot = new THREE.Mesh(
+        new THREE.IcosahedronGeometry(0.32, 0),
+        mat(COL.bodyMid)
+      );
+      foot.scale.set(1.2, 0.7, 1.4);
+      foot.position.set(side * 0.05, -0.05, 0.1);
+      group.add(foot);
+
+      group.position.set(side * 0.30, 0.05, 0);
+      return group;
+    }
+    const legR = makeLeg(+1);
+    const legL = makeLeg(-1);
+    spirout.add(legR);
+    spirout.add(legL);
+
+    // ----------------------------------------------------------------------
+    // Idle animation: gentle bounce + arm/antenna sway
+    // ----------------------------------------------------------------------
+    const clock = new THREE.Clock();
+    function animate() {
+      const t = clock.getElapsedTime();
+      spirout.position.y = Math.sin(t * 2.0) * 0.05;
+      spirout.rotation.y = Math.sin(t * 0.6) * 0.15;
+      armR.rotation.z =  Math.sin(t * 2.0) * 0.05;
+      armL.rotation.z = -Math.sin(t * 2.0) * 0.05;
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
